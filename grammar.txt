@@ -1,0 +1,44 @@
+# C-- grammar (LL(1)). Start symbol = first rule
+# Format:  LHS -> sym sym | sym | ε      ("|" must have spaces around it)
+# A line starting with "|" continues the previous rule
+# Symbols that never appear on a left-hand side are terminals
+
+Program      -> ExternalDecl Program | ε
+ExternalDecl -> Type id ExternalRest
+ExternalRest -> lparen ParamList rparen Block | IdTail semi
+Type         -> int | char
+IdTail       -> comma id IdTail | ε
+
+ParamList    -> Param ParamTail | ε
+ParamTail    -> comma Param ParamTail | ε
+Param        -> Type id
+
+Block        -> lbrace StmtList rbrace
+StmtList     -> Stmt StmtList | ε
+Stmt         -> Type id IdTail semi
+             | id StmtRest
+             | if lparen Expr rparen Block ElsePart
+             | while lparen Expr rparen Block
+             | return Expr semi
+             | Block
+StmtRest     -> assign Expr semi | lparen ArgList rparen semi
+ElsePart     -> else Block | ε
+
+Expr         -> AndExpr OrTail
+OrTail       -> or AndExpr OrTail | ε
+AndExpr      -> RelExpr AndTail
+AndTail      -> and RelExpr AndTail | ε
+RelExpr      -> AddExpr RelTail
+RelTail      -> lt AddExpr | gt AddExpr | le AddExpr | ge AddExpr
+             | eq AddExpr | ne AddExpr | ε
+AddExpr      -> Term AddTail
+AddTail      -> plus Term AddTail | minus Term AddTail | ε
+Term         -> Factor MulTail
+MulTail      -> star Factor MulTail | slash Factor MulTail
+             | percent Factor MulTail | ε
+Factor       -> lparen Expr rparen | id FactorRest | num | char_lit
+             | not Factor | minus Factor
+FactorRest   -> lparen ArgList rparen | ε
+
+ArgList      -> Expr ArgTail | ε
+ArgTail      -> comma Expr ArgTail | ε

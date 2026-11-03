@@ -1,0 +1,31 @@
+// test program for the c-- parser
+int index;
+char c1, c2;
+
+int sum(int a, int b){
+    return a + b;
+}
+
+int main(){
+    int total;
+    char letter;
+    index = 0;
+    total = 0;
+    letter = 'a';
+
+    // while loop with a nested if-else
+    while (index < 10) {
+        if (index == 5) {
+            total = sum(total, index);
+        } else {
+            total = total + index * 2 - 1;
+        }
+        index = index + 1;
+    }
+
+    if (total >= 20 && letter != 'z' || !index) {
+        total = -total / 2;
+    }
+
+    return total;
+}
