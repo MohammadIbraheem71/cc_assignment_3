@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 
+#include "analyzer.h"
 #include "grammar.h"
 #include "lexer.h"
 #include "parse_table.h"
@@ -58,6 +59,9 @@ int main() {
 
     // set this to true to also print the productions, first/follow sets and the parse table
     const bool show_grammar_info = false;
+
+    // set this to true to also print the parse tree
+    const bool show_parse_tree = false;
 
     // read the grammar from the file and compute nullable, first and follow
     Grammar grammar;
@@ -117,8 +121,27 @@ int main() {
         return 1;
     }
 
-    std::cout << "parse successful, parse tree:\n";
-    print_tree(root, 0);
+    if (show_parse_tree) {
+        std::cout << "parse successful, parse tree:\n";
+        print_tree(root, 0);
+    }
+
+    // check names and types while building the three address code
+    Analyzer analyzer(root);
+    analyzer.analyze();
+
+    if (!analyzer.get_errors().empty()) {
+        for (const std::string& error : analyzer.get_errors()) {
+            std::cerr << "semantic error " << error << "\n";
+        }
+        delete_tree(root);
+        return 1;
+    }
+
+    for (const std::string& line : analyzer.get_code()) {
+        std::cout << line << "\n";
+    }
+
     delete_tree(root);
     return 0;
 }

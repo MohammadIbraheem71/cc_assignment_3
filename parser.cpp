@@ -72,6 +72,10 @@ TreeNode* Parser::parse(lexer& lex) {
                 return fail(current_token, get_display_name(top->symbol), root, end_node);
             }
 
+            // remember where this terminal came from, even for the end marker
+            top->line = current_token.line;
+            top->column = current_token.column;
+
             // the end marker matched the end of the input, so we are done
             if (top->symbol == END_MARK) break;
 
@@ -105,6 +109,17 @@ TreeNode* Parser::parse(lexer& lex) {
 
     delete end_node;
     return root;
+}
+
+const TreeNode* find_first_terminal(const TreeNode* node) {
+    if (node == nullptr) return nullptr;
+    if (node->line != 0) return node;
+
+    for (const TreeNode* child : node->children) {
+        const TreeNode* found = find_first_terminal(child);
+        if (found != nullptr) return found;
+    }
+    return nullptr;
 }
 
 void print_tree(const TreeNode* node, int depth) {

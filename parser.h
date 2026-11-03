@@ -10,6 +10,8 @@
 struct TreeNode {
     std::string symbol;                 // grammar symbol, such as a nonterminal name or id
     std::string lexeme;                 // the matched text, only filled for terminals
+    int line = 0;                       // source line, filled for terminals
+    int column = 0;                     // source column, filled for terminals
     std::vector<TreeNode*> children;
 };
 
@@ -38,6 +40,9 @@ private:
 
 // prints the tree, indented by depth
 void print_tree(const TreeNode* node, int depth);
+
+// returns the first terminal below a node, or nullptr if there is none
+const TreeNode* find_first_terminal(const TreeNode* node);
 
 // frees a node and everything below it
 void delete_tree(TreeNode* node);
