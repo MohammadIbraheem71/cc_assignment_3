@@ -1,0 +1,1 @@
+g++ -o parser grammar.cpp parse_table.cpp lexer.cpp parser.cpp symbol_table.cpp analyzer.cpp main.cpp

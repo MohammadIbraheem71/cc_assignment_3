@@ -3,6 +3,11 @@
 #include <string>
 #include <vector>
 
+// this file walks the parse tree once. it checks names and types and builds
+// the three address code at the same time. every expression returns a place
+// (a variable, literal, or temp) and a type. code lines are saved in a list
+// and only printed later if there were no errors.
+
 // one parameter found in a param list, with its id node for error possitions
 struct ParamInfo {
     std::string name;
@@ -25,6 +30,7 @@ static ValueType type_from_node(const TreeNode* type_node) {
     return TYPE_CHAR;
 }
 
+// turns an internal type value into text for error messages
 static std::string type_name(ValueType type) {
     if (type == TYPE_INT) return "int";
     if (type == TYPE_CHAR) return "char";
@@ -40,6 +46,7 @@ static bool is_assignable(ValueType from, ValueType to) {
     return false;
 }
 
+// the grammar uses names like plus and star, but tac uses the real symbols
 static std::string terminal_to_operator(const std::string& terminal) {
     if (terminal == "or") return "||";
     if (terminal == "and") return "&&";
@@ -57,6 +64,7 @@ static std::string terminal_to_operator(const std::string& terminal) {
     return "?";
 }
 
+// reads one param node, which is always type followed by id
 static void add_param_info(TreeNode* param, std::vector<ParamInfo>& params) {
     ParamInfo info;
     info.type = type_from_node(param->children[0]);
@@ -66,6 +74,7 @@ static void add_param_info(TreeNode* param, std::vector<ParamInfo>& params) {
 }
 
 // param list -> param param tail | ε, param tail -> comma param param tail | ε
+// the list is right nested, so a loop is used to keep the source order
 static void collect_param_info(TreeNode* param_list, std::vector<ParamInfo>& params) {
     if (is_epsilon_node(param_list)) return;
 
@@ -78,6 +87,7 @@ static void collect_param_info(TreeNode* param_list, std::vector<ParamInfo>& par
     }
 }
 
+// start with empty temp and label counters, and no function return type yet
 Analyzer::Analyzer(TreeNode* root)
     : root(root), temporary_count(0), label_count(0), current_return_type(TYPE_ERROR) {}
 
@@ -86,10 +96,14 @@ void Analyzer::analyze() {
 
     // find every function name first, so a call before the defenition can be
     // told apart from a completely unknown function
+    // scan the top level first, then do the real one pass walk
     collect_function_signatures(root);
     analyze_program(root);
 }
 
+// remember every top level function name and its signature. these are not
+// real declarations. they only let a call before the defenition give a better
+// message than a call to a name that never appears at all
 void Analyzer::collect_function_signatures(TreeNode* program) {
     TreeNode* current = program;
 
@@ -117,6 +131,7 @@ void Analyzer::collect_function_signatures(TreeNode* program) {
     }
 }
 
+// walk the program and external decl chain from left to right
 void Analyzer::analyze_program(TreeNode* program) {
     TreeNode* current = program;
 
@@ -126,6 +141,7 @@ void Analyzer::analyze_program(TreeNode* program) {
     }
 }
 
+// a top level decl is either a function definition or a list of global vars
 void Analyzer::analyze_external_decl(TreeNode* decl) {
     ValueType type = type_from_node(decl->children[0]);
     TreeNode* id_node = decl->children[1];
@@ -143,6 +159,7 @@ void Analyzer::analyze_external_decl(TreeNode* decl) {
 
 void Analyzer::analyze_function(TreeNode* id_node, ValueType return_type,
                                 TreeNode* param_list, TreeNode* block) {
+    // first read all parameters, so their types can go in the function entry
     std::vector<ParamInfo> params;
     collect_param_info(param_list, params);
 
@@ -162,7 +179,8 @@ void Analyzer::analyze_function(TreeNode* id_node, ValueType return_type,
 
     emit("func " + entry.unique_name + ":");
 
-    // parameters and the body top level share one scope
+    // parameters and the body top level share one scope, so a local name that
+    // repeats a parameter is an error. do not open a scope for the body block
     symbol_table.enter_scope();
     for (size_t i = 0; i < params.size(); ++i) {
         SymbolEntry param_entry;
@@ -175,6 +193,7 @@ void Analyzer::analyze_function(TreeNode* id_node, ValueType return_type,
         }
     }
 
+    // remember the return type while walking the body, then put the old one back
     ValueType previous_return_type = current_return_type;
     current_return_type = return_type;
     analyze_block(block, false);
@@ -184,6 +203,7 @@ void Analyzer::analyze_function(TreeNode* id_node, ValueType return_type,
     emit("endfunc");
 }
 
+// declare one variable in the current scope and report a duplicate name
 void Analyzer::declare_variable(TreeNode* id_node, ValueType type) {
     SymbolEntry entry;
     entry.name = id_node->lexeme;
@@ -196,6 +216,7 @@ void Analyzer::declare_variable(TreeNode* id_node, ValueType type) {
 }
 
 // id tail -> comma id id tail | ε
+// all names in the list get the same type from the declaration
 void Analyzer::declare_id_tail(ValueType type, TreeNode* id_tail) {
     TreeNode* tail = id_tail;
 
@@ -205,6 +226,8 @@ void Analyzer::declare_id_tail(ValueType type, TreeNode* id_tail) {
     }
 }
 
+// a function body is walked with open_scope false so it shares the parameter
+// scope. every other block (if, else, while, nested block) opens a new scope
 void Analyzer::analyze_block(TreeNode* block, bool open_scope) {
     if (block == nullptr || block->children.size() < 2) return;
 
@@ -220,6 +243,7 @@ void Analyzer::analyze_block(TreeNode* block, bool open_scope) {
     }
 }
 
+// statements are a right nested list. a loop keeps them in source order
 void Analyzer::analyze_stmt_list(TreeNode* stmt_list) {
     TreeNode* current = stmt_list;
 
@@ -229,6 +253,8 @@ void Analyzer::analyze_stmt_list(TreeNode* stmt_list) {
     }
 }
 
+// the first child of a stmt node tells us which form it is
+// this function does all the analyzing of the .cmm file
 void Analyzer::analyze_stmt(TreeNode* stmt) {
     if (stmt->children.empty()) return;
 
@@ -261,6 +287,7 @@ void Analyzer::analyze_stmt(TreeNode* stmt) {
         TreeNode* else_part = stmt->children[5];
 
         if (is_epsilon_node(else_part)) {
+            // if without else: jump past the then block when the condition is false
             std::string end_label = make_label();
             if (condition.type != TYPE_ERROR) {
                 emit("if_false " + condition.place + " goto " + end_label);
@@ -268,6 +295,8 @@ void Analyzer::analyze_stmt(TreeNode* stmt) {
             analyze_block(then_block, true);
             emit(end_label + ":");
         } else {
+            // if with else: false goes to the else block, then the then block
+            // jumps over the else block to the end
             std::string else_label = make_label();
             std::string end_label = make_label();
 
@@ -285,6 +314,7 @@ void Analyzer::analyze_stmt(TreeNode* stmt) {
 
     if (first_symbol == "while") {
         // stmt -> while lparen expr rparen block
+        // the condition is checked at the top, and the body jumps back to it
         std::string start_label = make_label();
         std::string end_label = make_label();
 
@@ -301,6 +331,7 @@ void Analyzer::analyze_stmt(TreeNode* stmt) {
 
     if (first_symbol == "return") {
         // stmt -> return expr semi
+        // the value must fit the return type of the current function
         ExprResult value = analyze_expr(stmt->children[1]);
         if (!is_assignable(value.type, current_return_type)) {
             report_error(stmt->children[1],
@@ -314,12 +345,15 @@ void Analyzer::analyze_stmt(TreeNode* stmt) {
     }
 }
 
+// the stmt rule already read the id before stmt rest. look it up once here,
+// then either assign to it or use it as a call name
 void Analyzer::analyze_assignment_or_call(TreeNode* id_node, TreeNode* stmt_rest) {
     const SymbolEntry* entry = symbol_table.lookup(id_node->lexeme);
     TreeNode* first = stmt_rest->children[0];
 
     if (first->symbol == "assign") {
         // stmt rest -> assign expr semi
+        // check the right side first, then check the target name and type
         ExprResult value = analyze_expr(stmt_rest->children[1]);
 
         if (entry == nullptr) {
@@ -347,9 +381,12 @@ void Analyzer::analyze_assignment_or_call(TreeNode* id_node, TreeNode* stmt_rest
     analyze_call(id_node, stmt_rest->children[1], false);
 }
 
+// checks a call and emits its code. use_result is true when the call is
+// inside an expression, and false when it is a call statement
 ExprResult Analyzer::analyze_call(TreeNode* id_node, TreeNode* arg_list, bool use_result) {
     const SymbolEntry* entry = symbol_table.lookup(id_node->lexeme);
 
+    // the name is either unknown, defined later, or not a function at all
     if (entry == nullptr) {
         if (function_signatures.count(id_node->lexeme) > 0) {
             report_error(id_node, "function '" + id_node->lexeme +
@@ -368,6 +405,7 @@ ExprResult Analyzer::analyze_call(TreeNode* id_node, TreeNode* arg_list, bool us
     std::vector<ExprResult> args;
     collect_arg_list(arg_list, args);
 
+    // the count must match, and each arg must fit the matching param type
     const std::vector<ValueType>& parameter_types = entry->parameter_types;
     if (args.size() != parameter_types.size()) {
         report_error(id_node, "function '" + id_node->lexeme + "' expects " +
@@ -394,6 +432,7 @@ ExprResult Analyzer::analyze_call(TreeNode* id_node, TreeNode* arg_list, bool us
 
     std::string call_text = "call " + entry->unique_name + ", " + std::to_string(args.size());
     if (use_result) {
+        // an expression call needs a temp to hold the returned value
         std::string temp = make_temp();
         emit(temp + " = " + call_text);
 
@@ -408,6 +447,7 @@ ExprResult Analyzer::analyze_call(TreeNode* id_node, TreeNode* arg_list, bool us
 }
 
 // arg list -> expr arg tail | ε, arg tail -> comma expr arg tail | ε
+// evaluate each arg and save it in source order for the param lines
 void Analyzer::collect_arg_list(TreeNode* arg_list, std::vector<ExprResult>& args) {
     if (is_epsilon_node(arg_list)) return;
 
@@ -421,6 +461,8 @@ void Analyzer::collect_arg_list(TreeNode* arg_list, std::vector<ExprResult>& arg
 }
 
 // expr -> and expr or tail, the tail is folded from the left
+// the first operand is on the left, and the tail holds the operator and the
+// next operand. folding left to right keeps the correct associativity
 ExprResult Analyzer::analyze_expr(TreeNode* expr) {
     ExprResult left = analyze_and_expr(expr->children[0]);
     TreeNode* tail = expr->children[1];
@@ -434,6 +476,7 @@ ExprResult Analyzer::analyze_expr(TreeNode* expr) {
 }
 
 // and expr -> rel expr and tail, the tail is folded from the left
+// both sides are always evaluated, so there is no short circuit here
 ExprResult Analyzer::analyze_and_expr(TreeNode* expr) {
     ExprResult left = analyze_rel_expr(expr->children[0]);
     TreeNode* tail = expr->children[1];
@@ -447,6 +490,7 @@ ExprResult Analyzer::analyze_and_expr(TreeNode* expr) {
 }
 
 // rel expr -> add expr rel tail, the tail does not repeat
+// so there is at most one comparison in this rule
 ExprResult Analyzer::analyze_rel_expr(TreeNode* expr) {
     ExprResult left = analyze_add_expr(expr->children[0]);
     TreeNode* tail = expr->children[1];
@@ -460,6 +504,7 @@ ExprResult Analyzer::analyze_rel_expr(TreeNode* expr) {
 }
 
 // add expr -> term add tail, the tail is folded from the left
+// this is what makes a - b - c mean (a - b) - c and not a - (b - c)
 ExprResult Analyzer::analyze_add_expr(TreeNode* expr) {
     ExprResult left = analyze_term(expr->children[0]);
     TreeNode* tail = expr->children[1];
@@ -474,6 +519,7 @@ ExprResult Analyzer::analyze_add_expr(TreeNode* expr) {
 }
 
 // term -> factor mul tail, the tail is folded from the left
+// mul has higher precedence, so it is handled below add expr
 ExprResult Analyzer::analyze_term(TreeNode* expr) {
     ExprResult left = analyze_factor(expr->children[0]);
     TreeNode* tail = expr->children[1];
@@ -487,6 +533,7 @@ ExprResult Analyzer::analyze_term(TreeNode* expr) {
     return left;
 }
 
+// a factor is a literal, a name, a call, a parenthesized expr, or a unary op
 ExprResult Analyzer::analyze_factor(TreeNode* factor) {
     if (factor->children.empty()) return error_result();
 
@@ -523,11 +570,13 @@ ExprResult Analyzer::analyze_factor(TreeNode* factor) {
     TreeNode* id_node = factor->children[0];
     TreeNode* rest = factor->children[1];
 
+    // factor rest is either empty or a call. an empty rest means a variable use
     if (!is_epsilon_node(rest)) {
         // factor rest -> lparen arg list rparen, a call inside an expression
         return analyze_call(id_node, rest->children[1], true);
     }
 
+    // a plain name must be a declared variable or a parameter
     const SymbolEntry* entry = symbol_table.lookup(id_node->lexeme);
     if (entry == nullptr) {
         report_error(id_node, "undeclared identifier '" + id_node->lexeme + "'");
@@ -545,6 +594,8 @@ ExprResult Analyzer::analyze_factor(TreeNode* factor) {
     return result;
 }
 
+// emit one binary operation. if either side failed earlier, just pass the
+// error on and do not print another message or code line
 ExprResult Analyzer::make_binary(const std::string& op, ExprResult left, ExprResult right) {
     if (left.type == TYPE_ERROR || right.type == TYPE_ERROR) {
         return error_result();
@@ -559,6 +610,7 @@ ExprResult Analyzer::make_binary(const std::string& op, ExprResult left, ExprRes
     return result;
 }
 
+// unary minus and not both produce an int in a temp
 ExprResult Analyzer::make_unary(const std::string& op, ExprResult operand) {
     if (operand.type == TYPE_ERROR) {
         return error_result();
@@ -573,6 +625,7 @@ ExprResult Analyzer::make_unary(const std::string& op, ExprResult operand) {
     return result;
 }
 
+// a dummy result used after a problem, so later checks do not add more errors
 ExprResult Analyzer::error_result() {
     ExprResult result;
     result.place = "0";
@@ -580,6 +633,7 @@ ExprResult Analyzer::error_result() {
     return result;
 }
 
+// temps and labels are global for the whole program and are never reused
 std::string Analyzer::make_temp() {
     ++temporary_count;
     return "t" + std::to_string(temporary_count);
@@ -590,10 +644,12 @@ std::string Analyzer::make_label() {
     return "L" + std::to_string(label_count);
 }
 
+// add one line to the final tac. nothing is printed until the walk is done
 void Analyzer::emit(const std::string& line) {
     code.push_back(line);
 }
 
+// find the first real token below the node, then use its line and column
 void Analyzer::report_error(const TreeNode* node, const std::string& message) {
     const TreeNode* position = find_first_terminal(node);
     int line = 0;

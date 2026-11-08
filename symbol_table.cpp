@@ -15,6 +15,7 @@ void SymbolTable::exit_scope() {
     }
 }
 
+// adds an entry to the sumbol table
 bool SymbolTable::declare(SymbolEntry& entry) {
     std::map<std::string, SymbolEntry>& current_scope = scope_stack.back();
 

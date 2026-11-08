@@ -61,7 +61,7 @@ int main() {
     const bool show_grammar_info = false;
 
     // set this to true to also print the parse tree
-    const bool show_parse_tree = false;
+    const bool show_parse_tree = true;
 
     // read the grammar from the file and compute nullable, first and follow
     Grammar grammar;

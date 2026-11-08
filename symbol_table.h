@@ -44,6 +44,9 @@ public:
     const SymbolEntry* lookup(const std::string& name) const;
 
 private:
+    // a stack of maps
+    // each map represents a scope
+    // a scope is popped when it is exited
     std::vector<std::map<std::string, SymbolEntry>> scope_stack;
     std::map<std::string, int> name_counter;
 };
